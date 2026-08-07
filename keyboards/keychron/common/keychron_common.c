@@ -34,6 +34,8 @@ __attribute__((weak)) void os_state_indicate(void) {}
 #include "config.h"
 #include "usb_descriptor.h"
 #include "raw_hid.h"
+#include "eeprom_driver.h"
+#include "nvm_eeprom_eeconfig_internal.h"
 #ifdef ANANLOG_MATRIX
 #    include "profile.h"
 #endif
