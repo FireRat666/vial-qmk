@@ -19,6 +19,7 @@ bool PIXEL_RAIN(effect_params_t* params) {
 
     if (params->iter == 0) {
         region_mask |= 0x01 << params->region;
+        (void)region_mask;
 
         if (timer_elapsed_fast(timer[params->region]) > (320 - rgb_matrix_config.speed)) {
             index[params->region] = random8_max(RGB_MATRIX_LED_COUNT);

@@ -435,8 +435,9 @@ void ckbt51_dfu_tx(uint8_t rsp, uint8_t* data, uint8_t len, uint8_t sn) {
     memcpy(&buf[i], data, len);
     i += len;
 
-    for (uint8_t k = 0; k < i; k++)
-        checksum += buf[i];
+    for (uint8_t k = 0; k < len; k++)
+        checksum += data[k];
+    (void)checksum;
 
     raw_hid_send(buf, RAW_EPSIZE);
 
