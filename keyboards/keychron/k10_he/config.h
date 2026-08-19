@@ -101,3 +101,10 @@
 /* Factory Test Keys */
 #define FN_KEY_1 MO(1)
 #define FN_KEY_2 MO(3)
+
+/* Custom RGB Matrix Framebuffer Configuration */
+#if defined(RGB_MATRIX_ENABLE)
+#    define RGB_MATRIX_FRAMEBUFFER_EFFECTS
+#    define RGB_MATRIX_KEYPRESSES
+#endif
+
