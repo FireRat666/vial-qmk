@@ -265,7 +265,7 @@ bool mixed_rgb_set_effect_list(uint8_t *data) {
 
     if (count > 3 || region > EFFECT_LAYERS || start + count > EFFECTS_PER_LAYER) return false;
     for (uint8_t i = 0; i < count; i++) {
-        if (data[3 + i * EFFECT_DATA_LEN] >= RGB_MATRIX_CUSTOM_MIXED_RGB) return false;
+        if (data[3 + i * EFFECT_DATA_LEN] >= RGB_MATRIX_EFFECT_MAX) return false;
     }
 
     for (uint8_t i = 0; i < count; i++) {

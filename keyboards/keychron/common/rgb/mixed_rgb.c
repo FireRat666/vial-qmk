@@ -23,6 +23,9 @@
 #    define RGB_MATRIX_EFFECT(name, ...) extern bool name(effect_params_t *params);
 #    include "rgb_matrix_effects.inc"
 #    include "rgb_matrix_kb.inc"
+#    ifdef RGB_MATRIX_CUSTOM_USER
+#        include "rgb_matrix_user.inc"
+#    endif
 #    undef RGB_MATRIX_EFFECT
 
 // PER_KEY_RGB data
@@ -160,6 +163,9 @@ bool multiple_rgb_effect_runner(effect_params_t *params) {
 #            ifdef RGB_MATRIX_CUSTOM_KB
 #                include "rgb_matrix_kb.inc"
 #            endif
+#            ifdef RGB_MATRIX_CUSTOM_USER
+#                include "rgb_matrix_user.inc"
+#            endif
 #            undef RGB_MATRIX_EFFECT
 #        endif
         // -----End rgb effect switch case macros-------
@@ -175,7 +181,10 @@ bool multiple_rgb_effect_runner(effect_params_t *params) {
 
 void rgb_matrix_handle_key_event_kb(uint8_t row, uint8_t col, bool pressed) {
     if (pressed) {
-        if (rgb_matrix_config.mode == RGB_MATRIX_CUSTOM_MIXED_RGB) {
+        if (rgb_matrix_config.mode == RGB_MATRIX_CUSTOM_REACTIVE_RAINBOW_HEATMAP) {
+            extern void process_rgb_matrix_rainbow_heatmap(uint8_t row, uint8_t col);
+            process_rgb_matrix_rainbow_heatmap(row, col);
+        } else if (rgb_matrix_config.mode == RGB_MATRIX_CUSTOM_MIXED_RGB) {
             extern void process_rgb_matrix_typing_heatmap(uint8_t row, uint8_t col);
             if (typingHeatmap) process_rgb_matrix_typing_heatmap(row, col);
         }
