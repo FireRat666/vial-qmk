@@ -9,6 +9,7 @@
 RGB_MATRIX_EFFECT(REACTIVE_RAINBOW_KEY)
 RGB_MATRIX_EFFECT(REACTIVE_RAINBOW_SPLASH)
 RGB_MATRIX_EFFECT(REACTIVE_RAINBOW_MULTISPLASH)
+RGB_MATRIX_EFFECT(REACTIVE_RAINBOW_HEATMAP)
 
 // Dynamic Multi-Color Shifting Backgrounds with Key Splash
 RGB_MATRIX_EFFECT(REACTIVE_CYBERPUNK_FLOW)
@@ -25,6 +26,31 @@ RGB_MATRIX_EFFECT(REACTIVE_SPECTRUM_WAVES)
 
 #ifdef RGB_MATRIX_CUSTOM_EFFECT_IMPLS
 
+// Keypress handler for slow-fading rainbow heatmap mode
+void process_rgb_matrix_rainbow_heatmap(uint8_t row, uint8_t col) {
+    if (g_led_config.matrix_co[row][col] == NO_LED) return;
+
+    for (uint8_t i_row = 0; i_row < MATRIX_ROWS; i_row++) {
+        for (uint8_t i_col = 0; i_col < MATRIX_COLS; i_col++) {
+            uint8_t target_led = g_led_config.matrix_co[i_row][i_col];
+            if (target_led == NO_LED) continue;
+
+            if (i_row == row && i_col == col) {
+                g_rgb_frame_buffer[row][col] = qadd8(g_rgb_frame_buffer[row][col], 64);
+            } else {
+                int16_t dx = g_led_config.point[g_led_config.matrix_co[row][col]].x - g_led_config.point[target_led].x;
+                int16_t dy = g_led_config.point[g_led_config.matrix_co[row][col]].y - g_led_config.point[target_led].y;
+                uint16_t dist = sqrt16(dx * dx + dy * dy);
+                uint16_t spread = 48;
+                if (dist < spread) {
+                    uint8_t amount = (spread - dist) * 36 / spread;
+                    g_rgb_frame_buffer[i_row][i_col] = qadd8(g_rgb_frame_buffer[i_row][i_col], amount);
+                }
+            }
+        }
+    }
+}
+
 // Helper function to calculate keypress hit intensity using QMK's g_last_hit_tracker
 #if defined(RGB_MATRIX_KEYPRESSES) || defined(RGB_MATRIX_KEYRELEASES)
 static uint16_t get_hit_boost(uint8_t led_idx, uint8_t max_dist_param) {
@@ -35,8 +61,8 @@ static uint16_t get_hit_boost(uint8_t led_idx, uint8_t max_dist_param) {
         uint16_t dist = sqrt16(dx * dx + dy * dy);
         uint16_t tick = g_last_hit_tracker.tick[h];
 
-        if (tick < 255 && dist < max_dist_param) {
-            uint16_t tf = 255 - tick;
+        if (tick < 600 && dist < max_dist_param) {
+            uint16_t tf = (600 - tick) * 255 / 600;
             uint16_t sf = (max_dist_param - dist) * 255 / max_dist_param;
             total_boost += (tf * sf) >> 8;
         }
@@ -46,7 +72,7 @@ static uint16_t get_hit_boost(uint8_t led_idx, uint8_t max_dist_param) {
 #endif
 
 // ----------------------------------------------------------------------------
-// 1. Flowing Rainbow Reactive Modes (Key, Splash, MultiSplash)
+// 1. Flowing Rainbow Reactive Modes (Key, Splash, MultiSplash, Heatmap)
 // ----------------------------------------------------------------------------
 static bool reactive_rainbow_runner(effect_params_t *params, uint8_t radius_mode) {
     RGB_MATRIX_USE_LIMITS(led_min, led_max);
@@ -68,8 +94,8 @@ static bool reactive_rainbow_runner(effect_params_t *params, uint8_t radius_mode
             uint16_t dist = sqrt16(dx * dx + dy * dy);
 
             uint16_t tick = g_last_hit_tracker.tick[h];
-            if (tick < 255) {
-                uint8_t time_fade = 255 - tick;
+            if (tick < 600) {
+                uint16_t time_fade = (600 - tick) * 255 / 600;
 
                 if (radius_mode == 0) { // Single key
                     if (g_last_hit_tracker.index[h] == i) val_boost += time_fade;
@@ -99,16 +125,64 @@ static bool reactive_rainbow_runner(effect_params_t *params, uint8_t radius_mode
     return led_max < RGB_MATRIX_LED_COUNT;
 }
 
-static bool REACTIVE_RAINBOW_KEY(effect_params_t *params) { return reactive_rainbow_runner(params, 0); }
-static bool REACTIVE_RAINBOW_SPLASH(effect_params_t *params) { return reactive_rainbow_runner(params, 1); }
-static bool REACTIVE_RAINBOW_MULTISPLASH(effect_params_t *params) { return reactive_rainbow_runner(params, 2); }
+bool REACTIVE_RAINBOW_KEY(effect_params_t *params) { return reactive_rainbow_runner(params, 0); }
+bool REACTIVE_RAINBOW_SPLASH(effect_params_t *params) { return reactive_rainbow_runner(params, 1); }
+bool REACTIVE_RAINBOW_MULTISPLASH(effect_params_t *params) { return reactive_rainbow_runner(params, 2); }
+
+// Slow-fading Flowing Rainbow Heatmap using Framebuffer
+static uint16_t rainbow_heatmap_decay_timer = 0;
+bool REACTIVE_RAINBOW_HEATMAP(effect_params_t *params) {
+    RGB_MATRIX_USE_LIMITS(led_min, led_max);
+
+    if (params->init) {
+        memset(g_rgb_frame_buffer, 0, sizeof(g_rgb_frame_buffer));
+        rainbow_heatmap_decay_timer = timer_read();
+    }
+
+    bool should_decay = false;
+    if (params->iter == 0) {
+        if (timer_elapsed(rainbow_heatmap_decay_timer) >= 30) {
+            rainbow_heatmap_decay_timer = timer_read();
+            should_decay = true;
+        }
+    }
+
+    uint16_t time = scale16by8(g_rgb_timer, rgb_matrix_config.speed / 4);
+    uint8_t base_v = rgb_matrix_config.hsv.v / 4;
+    if (base_v < 20) base_v = 20;
+
+    for (uint8_t row = 0; row < MATRIX_ROWS; row++) {
+        for (uint8_t col = 0; col < MATRIX_COLS; col++) {
+            uint8_t i = g_led_config.matrix_co[row][col];
+            if (i == NO_LED || i < led_min || i >= led_max) continue;
+            if (!HAS_ANY_FLAGS(g_led_config.flags[i], params->flags)) continue;
+
+            uint8_t hue = rgb_matrix_config.hsv.h + (g_led_config.point[i].x * 255 / 224) + (time >> 8);
+            uint8_t heat = g_rgb_frame_buffer[row][col];
+
+            uint16_t val_boost = scale8(heat, rgb_matrix_config.hsv.v - base_v);
+            uint16_t final_v = base_v + val_boost;
+            if (final_v > rgb_matrix_config.hsv.v) final_v = rgb_matrix_config.hsv.v;
+
+            HSV hsv = { hue, rgb_matrix_config.hsv.s, (uint8_t)final_v };
+            RGB rgb = rgb_matrix_hsv_to_rgb(hsv);
+            rgb_matrix_set_color(i, rgb.r, rgb.g, rgb.b);
+
+            if (should_decay && heat > 0) {
+                g_rgb_frame_buffer[row][col] = qsub8(heat, 1);
+            }
+        }
+    }
+
+    return led_max < RGB_MATRIX_LED_COUNT;
+}
 
 // ----------------------------------------------------------------------------
 // 2. Dynamic Shifting Multi-Color Backgrounds with Key Splash
 // ----------------------------------------------------------------------------
 
 // A. Cyberpunk Flow (Shifting Cyan <-> Hot Pink / Purple)
-static bool REACTIVE_CYBERPUNK_FLOW(effect_params_t *params) {
+bool REACTIVE_CYBERPUNK_FLOW(effect_params_t *params) {
     RGB_MATRIX_USE_LIMITS(led_min, led_max);
     uint16_t time = scale16by8(g_rgb_timer, rgb_matrix_config.speed / 4);
 
@@ -136,7 +210,7 @@ static bool REACTIVE_CYBERPUNK_FLOW(effect_params_t *params) {
 }
 
 // B. Aurora Borealis Flow (Emerald Green <-> Teal <-> Deep Violet)
-static bool REACTIVE_AURORA_FLOW(effect_params_t *params) {
+bool REACTIVE_AURORA_FLOW(effect_params_t *params) {
     RGB_MATRIX_USE_LIMITS(led_min, led_max);
     uint16_t time = scale16by8(g_rgb_timer, rgb_matrix_config.speed / 4);
 
@@ -164,7 +238,7 @@ static bool REACTIVE_AURORA_FLOW(effect_params_t *params) {
 }
 
 // C. Sunset Wave (Flame Orange <-> Crimson <-> Purple)
-static bool REACTIVE_SUNSET_WAVE(effect_params_t *params) {
+bool REACTIVE_SUNSET_WAVE(effect_params_t *params) {
     RGB_MATRIX_USE_LIMITS(led_min, led_max);
     uint16_t time = scale16by8(g_rgb_timer, rgb_matrix_config.speed / 4);
 
@@ -192,7 +266,7 @@ static bool REACTIVE_SUNSET_WAVE(effect_params_t *params) {
 }
 
 // D. Neon Chevron Flow (Diagonal multi-color sweep)
-static bool REACTIVE_NEON_CHEVRON(effect_params_t *params) {
+bool REACTIVE_NEON_CHEVRON(effect_params_t *params) {
     RGB_MATRIX_USE_LIMITS(led_min, led_max);
     uint16_t time = scale16by8(g_rgb_timer, rgb_matrix_config.speed / 4);
 
@@ -219,7 +293,7 @@ static bool REACTIVE_NEON_CHEVRON(effect_params_t *params) {
 }
 
 // E. Plasma Pulse (2D multi-color fluid wave)
-static bool REACTIVE_PLASMA_PULSE(effect_params_t *params) {
+bool REACTIVE_PLASMA_PULSE(effect_params_t *params) {
     RGB_MATRIX_USE_LIMITS(led_min, led_max);
     uint16_t time = scale16by8(g_rgb_timer, rgb_matrix_config.speed / 4);
 
@@ -252,7 +326,7 @@ static bool REACTIVE_PLASMA_PULSE(effect_params_t *params) {
 // ----------------------------------------------------------------------------
 
 // A. Starry Night / Starfield
-static bool STARRY_NIGHT(effect_params_t *params) {
+bool STARRY_NIGHT(effect_params_t *params) {
     RGB_MATRIX_USE_LIMITS(led_min, led_max);
     uint16_t time = scale16by8(g_rgb_timer, rgb_matrix_config.speed / 4);
 
@@ -281,7 +355,7 @@ static bool STARRY_NIGHT(effect_params_t *params) {
 }
 
 // B. Fire Simulator
-static bool FIRE_SIMULATOR(effect_params_t *params) {
+bool FIRE_SIMULATOR(effect_params_t *params) {
     RGB_MATRIX_USE_LIMITS(led_min, led_max);
     uint16_t time = scale16by8(g_rgb_timer, rgb_matrix_config.speed / 2);
 
@@ -312,7 +386,7 @@ static bool FIRE_SIMULATOR(effect_params_t *params) {
 }
 
 // C. Fireworks (Expanding multi-color ring explosions on keypress)
-static bool FIREWORKS(effect_params_t *params) {
+bool FIREWORKS(effect_params_t *params) {
     RGB_MATRIX_USE_LIMITS(led_min, led_max);
 
     for (uint8_t i = led_min; i < led_max; i++) {
@@ -354,7 +428,7 @@ static bool FIREWORKS(effect_params_t *params) {
 }
 
 // D. Reactive Spectrum Waves (Continuous spectrum + shockwave color ripples)
-static bool REACTIVE_SPECTRUM_WAVES(effect_params_t *params) {
+bool REACTIVE_SPECTRUM_WAVES(effect_params_t *params) {
     RGB_MATRIX_USE_LIMITS(led_min, led_max);
     uint16_t time = scale16by8(g_rgb_timer, rgb_matrix_config.speed / 4);
 

@@ -62,7 +62,9 @@ Set up your build environment and compile custom firmware:
 python3 -m pip install qmk
 qmk setup Keychron/qmk_firmware
 qmk compile -kb keychron/q1_he/ansi_encoder -km keychron
+qmk compile -kb keychron/k10_he/ansi -km vial
 qmk flash -kb keychron/q1_he/ansi_encoder -km keychron
+qmk flash -kb keychron/k10_he/ansi -km vial
 ```
 
 More build examples:
