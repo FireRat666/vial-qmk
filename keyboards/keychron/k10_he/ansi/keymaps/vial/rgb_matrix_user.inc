@@ -77,14 +77,14 @@ static uint16_t get_hit_boost(uint8_t led_idx, uint8_t max_dist_param) {
 static bool reactive_rainbow_runner(effect_params_t *params, uint8_t radius_mode) {
     RGB_MATRIX_USE_LIMITS(led_min, led_max);
 
-    uint16_t time = scale16by8(g_rgb_timer, rgb_matrix_config.speed / 4);
-    uint8_t base_v = rgb_matrix_config.hsv.v / 3;
-    if (base_v < 25) base_v = 25;
+    uint8_t time = scale16by8(g_rgb_timer, qadd8(rgb_matrix_config.speed / 4, 1));
+    uint8_t base_v = (rgb_matrix_config.hsv.v * 55) / 100;
+    if (base_v < 40) base_v = 40;
 
     for (uint8_t i = led_min; i < led_max; i++) {
         RGB_MATRIX_TEST_LED_FLAGS();
 
-        uint8_t hue = rgb_matrix_config.hsv.h + (g_led_config.point[i].x * 255 / 224) + (time >> 8);
+        uint8_t hue = rgb_matrix_config.hsv.h + (g_led_config.point[i].x * 255 / 224) + time;
         uint16_t val_boost = 0;
 
 #if defined(RGB_MATRIX_KEYPRESSES) || defined(RGB_MATRIX_KEYRELEASES)
@@ -114,7 +114,8 @@ static bool reactive_rainbow_runner(effect_params_t *params, uint8_t radius_mode
         }
 #endif
 
-        uint16_t final_v = base_v + val_boost;
+        uint16_t boost_scaled = scale8((val_boost > 255 ? 255 : val_boost), rgb_matrix_config.hsv.v - base_v);
+        uint16_t final_v = base_v + boost_scaled;
         if (final_v > rgb_matrix_config.hsv.v) final_v = rgb_matrix_config.hsv.v;
 
         HSV hsv = { hue, rgb_matrix_config.hsv.s, (uint8_t)final_v };
@@ -139,17 +140,22 @@ bool REACTIVE_RAINBOW_HEATMAP(effect_params_t *params) {
         rainbow_heatmap_decay_timer = timer_read();
     }
 
-    bool should_decay = false;
     if (params->iter == 0) {
         if (timer_elapsed(rainbow_heatmap_decay_timer) >= 30) {
             rainbow_heatmap_decay_timer = timer_read();
-            should_decay = true;
+            for (uint8_t r = 0; r < MATRIX_ROWS; r++) {
+                for (uint8_t c = 0; c < MATRIX_COLS; c++) {
+                    if (g_rgb_frame_buffer[r][c] > 0) {
+                        g_rgb_frame_buffer[r][c] = qsub8(g_rgb_frame_buffer[r][c], 1);
+                    }
+                }
+            }
         }
     }
 
-    uint16_t time = scale16by8(g_rgb_timer, rgb_matrix_config.speed / 4);
-    uint8_t base_v = rgb_matrix_config.hsv.v / 4;
-    if (base_v < 20) base_v = 20;
+    uint8_t time = scale16by8(g_rgb_timer, qadd8(rgb_matrix_config.speed / 4, 1));
+    uint8_t base_v = (rgb_matrix_config.hsv.v * 55) / 100;
+    if (base_v < 40) base_v = 40;
 
     for (uint8_t row = 0; row < MATRIX_ROWS; row++) {
         for (uint8_t col = 0; col < MATRIX_COLS; col++) {
@@ -157,7 +163,7 @@ bool REACTIVE_RAINBOW_HEATMAP(effect_params_t *params) {
             if (i == NO_LED || i < led_min || i >= led_max) continue;
             if (!HAS_ANY_FLAGS(g_led_config.flags[i], params->flags)) continue;
 
-            uint8_t hue = rgb_matrix_config.hsv.h + (g_led_config.point[i].x * 255 / 224) + (time >> 8);
+            uint8_t hue = rgb_matrix_config.hsv.h + (g_led_config.point[i].x * 255 / 224) + time;
             uint8_t heat = g_rgb_frame_buffer[row][col];
 
             uint16_t val_boost = scale8(heat, rgb_matrix_config.hsv.v - base_v);
@@ -167,10 +173,6 @@ bool REACTIVE_RAINBOW_HEATMAP(effect_params_t *params) {
             HSV hsv = { hue, rgb_matrix_config.hsv.s, (uint8_t)final_v };
             RGB rgb = rgb_matrix_hsv_to_rgb(hsv);
             rgb_matrix_set_color(i, rgb.r, rgb.g, rgb.b);
-
-            if (should_decay && heat > 0) {
-                g_rgb_frame_buffer[row][col] = qsub8(heat, 1);
-            }
         }
     }
 
@@ -184,22 +186,24 @@ bool REACTIVE_RAINBOW_HEATMAP(effect_params_t *params) {
 // A. Cyberpunk Flow (Shifting Cyan <-> Hot Pink / Purple)
 bool REACTIVE_CYBERPUNK_FLOW(effect_params_t *params) {
     RGB_MATRIX_USE_LIMITS(led_min, led_max);
-    uint16_t time = scale16by8(g_rgb_timer, rgb_matrix_config.speed / 4);
+    uint8_t time = scale16by8(g_rgb_timer, qadd8(rgb_matrix_config.speed / 4, 1));
+
+    uint8_t base_v = (rgb_matrix_config.hsv.v * 55) / 100;
+    if (base_v < 40) base_v = 40;
 
     for (uint8_t i = led_min; i < led_max; i++) {
         RGB_MATRIX_TEST_LED_FLAGS();
 
-        uint8_t wave = sin8((time >> 2) + (g_led_config.point[i].x * 255 / 224));
+        uint8_t wave = sin8(time + (g_led_config.point[i].x * 255 / 224));
         uint8_t bg_hue = 128 + ((wave * 92) >> 8); // Cyan (128) to Pink/Purple (220)
-        uint8_t base_v = rgb_matrix_config.hsv.v / 3;
-        if (base_v < 25) base_v = 25;
 
         uint16_t val_boost = 0;
 #if defined(RGB_MATRIX_KEYPRESSES) || defined(RGB_MATRIX_KEYRELEASES)
         val_boost = get_hit_boost(i, 55);
 #endif
 
-        uint16_t final_v = base_v + val_boost;
+        uint16_t boost_scaled = scale8((val_boost > 255 ? 255 : val_boost), rgb_matrix_config.hsv.v - base_v);
+        uint16_t final_v = base_v + boost_scaled;
         if (final_v > rgb_matrix_config.hsv.v) final_v = rgb_matrix_config.hsv.v;
 
         HSV hsv = { bg_hue, rgb_matrix_config.hsv.s, (uint8_t)final_v };
@@ -212,22 +216,24 @@ bool REACTIVE_CYBERPUNK_FLOW(effect_params_t *params) {
 // B. Aurora Borealis Flow (Emerald Green <-> Teal <-> Deep Violet)
 bool REACTIVE_AURORA_FLOW(effect_params_t *params) {
     RGB_MATRIX_USE_LIMITS(led_min, led_max);
-    uint16_t time = scale16by8(g_rgb_timer, rgb_matrix_config.speed / 4);
+    uint8_t time = scale16by8(g_rgb_timer, qadd8(rgb_matrix_config.speed / 4, 1));
+
+    uint8_t base_v = (rgb_matrix_config.hsv.v * 55) / 100;
+    if (base_v < 40) base_v = 40;
 
     for (uint8_t i = led_min; i < led_max; i++) {
         RGB_MATRIX_TEST_LED_FLAGS();
 
-        uint8_t wave = sin8((time >> 2) + (g_led_config.point[i].x * 3) + (g_led_config.point[i].y * 2));
+        uint8_t wave = sin8(time + (g_led_config.point[i].x * 3) + (g_led_config.point[i].y * 2));
         uint8_t bg_hue = 75 + ((wave * 115) >> 8); // Emerald Green (75) to Violet (190)
-        uint8_t base_v = rgb_matrix_config.hsv.v / 3;
-        if (base_v < 25) base_v = 25;
 
         uint16_t val_boost = 0;
 #if defined(RGB_MATRIX_KEYPRESSES) || defined(RGB_MATRIX_KEYRELEASES)
         val_boost = get_hit_boost(i, 55);
 #endif
 
-        uint16_t final_v = base_v + val_boost;
+        uint16_t boost_scaled = scale8((val_boost > 255 ? 255 : val_boost), rgb_matrix_config.hsv.v - base_v);
+        uint16_t final_v = base_v + boost_scaled;
         if (final_v > rgb_matrix_config.hsv.v) final_v = rgb_matrix_config.hsv.v;
 
         HSV hsv = { bg_hue, rgb_matrix_config.hsv.s, (uint8_t)final_v };
@@ -240,22 +246,24 @@ bool REACTIVE_AURORA_FLOW(effect_params_t *params) {
 // C. Sunset Wave (Flame Orange <-> Crimson <-> Purple)
 bool REACTIVE_SUNSET_WAVE(effect_params_t *params) {
     RGB_MATRIX_USE_LIMITS(led_min, led_max);
-    uint16_t time = scale16by8(g_rgb_timer, rgb_matrix_config.speed / 4);
+    uint8_t time = scale16by8(g_rgb_timer, qadd8(rgb_matrix_config.speed / 4, 1));
+
+    uint8_t base_v = (rgb_matrix_config.hsv.v * 55) / 100;
+    if (base_v < 40) base_v = 40;
 
     for (uint8_t i = led_min; i < led_max; i++) {
         RGB_MATRIX_TEST_LED_FLAGS();
 
-        uint8_t wave = sin8((time >> 2) + (g_led_config.point[i].x * 255 / 224));
+        uint8_t wave = sin8(time + (g_led_config.point[i].x * 255 / 224));
         uint8_t bg_hue = 15 + ((wave * 195) >> 8); // Orange (15) to Crimson/Purple (210)
-        uint8_t base_v = rgb_matrix_config.hsv.v / 3;
-        if (base_v < 25) base_v = 25;
 
         uint16_t val_boost = 0;
 #if defined(RGB_MATRIX_KEYPRESSES) || defined(RGB_MATRIX_KEYRELEASES)
         val_boost = get_hit_boost(i, 55);
 #endif
 
-        uint16_t final_v = base_v + val_boost;
+        uint16_t boost_scaled = scale8((val_boost > 255 ? 255 : val_boost), rgb_matrix_config.hsv.v - base_v);
+        uint16_t final_v = base_v + boost_scaled;
         if (final_v > rgb_matrix_config.hsv.v) final_v = rgb_matrix_config.hsv.v;
 
         HSV hsv = { bg_hue, rgb_matrix_config.hsv.s, (uint8_t)final_v };
@@ -268,21 +276,23 @@ bool REACTIVE_SUNSET_WAVE(effect_params_t *params) {
 // D. Neon Chevron Flow (Diagonal multi-color sweep)
 bool REACTIVE_NEON_CHEVRON(effect_params_t *params) {
     RGB_MATRIX_USE_LIMITS(led_min, led_max);
-    uint16_t time = scale16by8(g_rgb_timer, rgb_matrix_config.speed / 4);
+    uint8_t time = scale16by8(g_rgb_timer, qadd8(rgb_matrix_config.speed / 4, 1));
+
+    uint8_t base_v = (rgb_matrix_config.hsv.v * 55) / 100;
+    if (base_v < 40) base_v = 40;
 
     for (uint8_t i = led_min; i < led_max; i++) {
         RGB_MATRIX_TEST_LED_FLAGS();
 
-        uint8_t bg_hue = rgb_matrix_config.hsv.h + (g_led_config.point[i].x + g_led_config.point[i].y) + (time >> 8);
-        uint8_t base_v = rgb_matrix_config.hsv.v / 3;
-        if (base_v < 25) base_v = 25;
+        uint8_t bg_hue = rgb_matrix_config.hsv.h + (g_led_config.point[i].x + g_led_config.point[i].y) + time;
 
         uint16_t val_boost = 0;
 #if defined(RGB_MATRIX_KEYPRESSES) || defined(RGB_MATRIX_KEYRELEASES)
         val_boost = get_hit_boost(i, 55);
 #endif
 
-        uint16_t final_v = base_v + val_boost;
+        uint16_t boost_scaled = scale8((val_boost > 255 ? 255 : val_boost), rgb_matrix_config.hsv.v - base_v);
+        uint16_t final_v = base_v + boost_scaled;
         if (final_v > rgb_matrix_config.hsv.v) final_v = rgb_matrix_config.hsv.v;
 
         HSV hsv = { bg_hue, rgb_matrix_config.hsv.s, (uint8_t)final_v };
@@ -295,23 +305,25 @@ bool REACTIVE_NEON_CHEVRON(effect_params_t *params) {
 // E. Plasma Pulse (2D multi-color fluid wave)
 bool REACTIVE_PLASMA_PULSE(effect_params_t *params) {
     RGB_MATRIX_USE_LIMITS(led_min, led_max);
-    uint16_t time = scale16by8(g_rgb_timer, rgb_matrix_config.speed / 4);
+    uint8_t time = scale16by8(g_rgb_timer, qadd8(rgb_matrix_config.speed / 4, 1));
+
+    uint8_t base_v = (rgb_matrix_config.hsv.v * 55) / 100;
+    if (base_v < 40) base_v = 40;
 
     for (uint8_t i = led_min; i < led_max; i++) {
         RGB_MATRIX_TEST_LED_FLAGS();
 
-        uint8_t p1 = sin8((time >> 2) + g_led_config.point[i].x * 3);
-        uint8_t p2 = cos8((time >> 2) + g_led_config.point[i].y * 4);
+        uint8_t p1 = sin8(time + g_led_config.point[i].x * 3);
+        uint8_t p2 = cos8(time + g_led_config.point[i].y * 4);
         uint8_t bg_hue = rgb_matrix_config.hsv.h + ((p1 + p2) >> 1);
-        uint8_t base_v = rgb_matrix_config.hsv.v / 3;
-        if (base_v < 25) base_v = 25;
 
         uint16_t val_boost = 0;
 #if defined(RGB_MATRIX_KEYPRESSES) || defined(RGB_MATRIX_KEYRELEASES)
         val_boost = get_hit_boost(i, 55);
 #endif
 
-        uint16_t final_v = base_v + val_boost;
+        uint16_t boost_scaled = scale8((val_boost > 255 ? 255 : val_boost), rgb_matrix_config.hsv.v - base_v);
+        uint16_t final_v = base_v + boost_scaled;
         if (final_v > rgb_matrix_config.hsv.v) final_v = rgb_matrix_config.hsv.v;
 
         HSV hsv = { bg_hue, rgb_matrix_config.hsv.s, (uint8_t)final_v };
@@ -328,13 +340,14 @@ bool REACTIVE_PLASMA_PULSE(effect_params_t *params) {
 // A. Starry Night / Starfield
 bool STARRY_NIGHT(effect_params_t *params) {
     RGB_MATRIX_USE_LIMITS(led_min, led_max);
-    uint16_t time = scale16by8(g_rgb_timer, rgb_matrix_config.speed / 4);
+    uint8_t time = scale16by8(g_rgb_timer, qadd8(rgb_matrix_config.speed / 4, 1));
 
     for (uint8_t i = led_min; i < led_max; i++) {
         RGB_MATRIX_TEST_LED_FLAGS();
 
-        uint8_t star_phase = sin8((time >> 2) + i * 47);
-        uint8_t star_v = scale8(star_phase, rgb_matrix_config.hsv.v / 4);
+        uint8_t star_phase = sin8(time + i * 47);
+        uint8_t star_v = scale8(star_phase, (rgb_matrix_config.hsv.v * 60) / 100);
+        if (star_v < 35) star_v = 35;
 
         uint16_t val_boost = 0;
 #if defined(RGB_MATRIX_KEYPRESSES) || defined(RGB_MATRIX_KEYRELEASES)
@@ -357,14 +370,15 @@ bool STARRY_NIGHT(effect_params_t *params) {
 // B. Fire Simulator
 bool FIRE_SIMULATOR(effect_params_t *params) {
     RGB_MATRIX_USE_LIMITS(led_min, led_max);
-    uint16_t time = scale16by8(g_rgb_timer, rgb_matrix_config.speed / 2);
+    uint8_t time = scale16by8(g_rgb_timer, qadd8(rgb_matrix_config.speed / 2, 1));
 
     for (uint8_t i = led_min; i < led_max; i++) {
         RGB_MATRIX_TEST_LED_FLAGS();
 
         uint8_t y_pos = g_led_config.point[i].y;
-        uint8_t heat = sin8((time >> 2) + g_led_config.point[i].x * 3 + y_pos * 4);
+        uint8_t heat = sin8(time + g_led_config.point[i].x * 3 + y_pos * 4);
         heat = scale8(heat, y_pos * 4);
+        if (heat < 60 && y_pos > 30) heat = 60;
 
         uint16_t val_boost = 0;
 #if defined(RGB_MATRIX_KEYPRESSES) || defined(RGB_MATRIX_KEYRELEASES)
@@ -377,6 +391,7 @@ bool FIRE_SIMULATOR(effect_params_t *params) {
         uint8_t hue = (total_heat * 35) / 255;
         uint8_t sat = 255 - ((total_heat > 180) ? (total_heat - 180) : 0);
         uint8_t val = scale8(total_heat, rgb_matrix_config.hsv.v);
+        if (val < (rgb_matrix_config.hsv.v * 40) / 100) val = (rgb_matrix_config.hsv.v * 40) / 100;
 
         HSV hsv = { hue, sat, val };
         RGB rgb = rgb_matrix_hsv_to_rgb(hsv);
@@ -389,10 +404,13 @@ bool FIRE_SIMULATOR(effect_params_t *params) {
 bool FIREWORKS(effect_params_t *params) {
     RGB_MATRIX_USE_LIMITS(led_min, led_max);
 
+    uint8_t base_v = (rgb_matrix_config.hsv.v * 35) / 100;
+    if (base_v < 30) base_v = 30;
+
     for (uint8_t i = led_min; i < led_max; i++) {
         RGB_MATRIX_TEST_LED_FLAGS();
 
-        uint16_t spark_val = 15;
+        uint16_t spark_val = base_v;
         uint8_t spark_hue = rgb_matrix_config.hsv.h;
         uint8_t spark_sat = rgb_matrix_config.hsv.s;
 
@@ -430,14 +448,15 @@ bool FIREWORKS(effect_params_t *params) {
 // D. Reactive Spectrum Waves (Continuous spectrum + shockwave color ripples)
 bool REACTIVE_SPECTRUM_WAVES(effect_params_t *params) {
     RGB_MATRIX_USE_LIMITS(led_min, led_max);
-    uint16_t time = scale16by8(g_rgb_timer, rgb_matrix_config.speed / 4);
+    uint8_t time = scale16by8(g_rgb_timer, qadd8(rgb_matrix_config.speed / 4, 1));
+
+    uint8_t base_v = (rgb_matrix_config.hsv.v * 55) / 100;
+    if (base_v < 40) base_v = 40;
 
     for (uint8_t i = led_min; i < led_max; i++) {
         RGB_MATRIX_TEST_LED_FLAGS();
 
-        uint8_t base_hue = rgb_matrix_config.hsv.h + (g_led_config.point[i].x * 255 / 224) + (time >> 8);
-        uint8_t base_v = rgb_matrix_config.hsv.v / 3;
-        if (base_v < 25) base_v = 25;
+        uint8_t base_hue = rgb_matrix_config.hsv.h + (g_led_config.point[i].x * 255 / 224) + time;
 
         uint16_t val_boost = 0;
         uint8_t hue_shift = 0;
@@ -461,7 +480,8 @@ bool REACTIVE_SPECTRUM_WAVES(effect_params_t *params) {
         }
 #endif
 
-        uint16_t final_v = base_v + val_boost;
+        uint16_t boost_scaled = scale8((val_boost > 255 ? 255 : val_boost), rgb_matrix_config.hsv.v - base_v);
+        uint16_t final_v = base_v + boost_scaled;
         if (final_v > rgb_matrix_config.hsv.v) final_v = rgb_matrix_config.hsv.v;
 
         HSV hsv = { base_hue + hue_shift, rgb_matrix_config.hsv.s, (uint8_t)final_v };
